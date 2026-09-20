@@ -4,6 +4,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -26,3 +29,25 @@ jobs:
       - run: scripts/test-disposable-postgres.sh tests/fixtures/quant-notifications.json
       - run: scripts/test-image-contract.sh guillotine-notifications:ci
       - run: git diff --check
+
+  publish-image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/strangla/guillotine-notifications/service:sha-${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
