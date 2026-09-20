@@ -1,0 +1,4 @@
+[
+  {"id":"00000000-0000-0000-0000-000000000001","alert_id":"alert-1","symbol":"AAPL","message":"alert","triggered_at":"2026-01-01T00:00:00Z","read":false,"priority":"high","source":"user_alert","legacy_id":"legacy-a","legacy_position":1},
+  {"id":"00000000-0000-0000-0000-000000000002","alert_id":"auto-1","symbol":"MSFT","message":"scan","triggered_at":"2026-01-02T00:00:00Z","read":true,"priority":"medium","source":"auto_scan","legacy_id":null,"legacy_position":null}
+]

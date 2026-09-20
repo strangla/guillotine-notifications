@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: notifications
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d notifications"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-groups
+      - run: uv run pytest -q
+      - run: python3 -m compileall -q src scripts
+      - run: scripts/test-disposable-postgres.sh tests/fixtures/quant-notifications.json
+      - run: scripts/test-image-contract.sh guillotine-notifications:ci
+      - run: git diff --check
