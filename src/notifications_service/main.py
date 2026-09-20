@@ -22,11 +22,17 @@ async def create(payload: NotificationCreate, x_api_key: str|None=Header(default
     except ValueError as e: raise HTTPException(409,str(e))
     return {'notification':row,'created':created}
 @app.get('/api/v1/notifications')
-async def listing(limit:int=Query(100,ge=1,le=500),source_product:str|None=None,entity_type:str|None=None,entity_key:str|None=None,unread_only:bool=False,x_api_key:str|None=Header(default=None)):
-    auth(x_api_key); return {'items':await service.list_notifications(limit,source_product,entity_type,entity_key,unread_only)}
+async def listing(limit:int=Query(100,ge=1,le=500),source_product:str|None=None,entity_type:str|None=None,entity_key:str|None=None,unread_only:bool=False,cursor:str|None=None,x_api_key:str|None=Header(default=None)):
+    auth(x_api_key)
+    try: return await service.list_notifications(limit,source_product,entity_type,entity_key,unread_only,cursor)
+    except ValueError as e: raise HTTPException(400,str(e))
+@app.delete('/api/v1/notifications')
+async def clear(source_product: str|None=None, x_api_key: str|None=Header(default=None)):
+    auth(x_api_key); return {'deleted':await service.clear_notifications(source_product)}
+
 @app.get('/api/v1/notifications/unread-count')
-async def unread(x_api_key: str|None=Header(default=None)):
-    auth(x_api_key); return {'count':await service.unread_count()}
+async def unread(source_product: str|None=None, x_api_key: str|None=Header(default=None)):
+    auth(x_api_key); return {'count':await service.unread_count(source_product)}
 @app.patch('/api/v1/notifications/{ident}/read')
 async def read(ident:str,x_api_key:str|None=Header(default=None)):
     from uuid import UUID
@@ -36,5 +42,5 @@ async def read(ident:str,x_api_key:str|None=Header(default=None)):
     if not ok: raise HTTPException(404,'not found')
     return {'ok':True}
 @app.post('/api/v1/notifications/mark-all-read')
-async def all_read(x_api_key:str|None=Header(default=None)):
-    auth(x_api_key); return {'marked':await service.mark_all_read()}
+async def all_read(source_product: str|None=None, x_api_key:str|None=Header(default=None)):
+    auth(x_api_key); return {'marked':await service.mark_all_read(source_product)}
