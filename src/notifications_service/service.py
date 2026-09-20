@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from .database import session_factory
 from .schemas import NotificationCreate, NotificationOut
+from .pagination import encode, decode
 
 COLS = "id, source_product, event_type, source_event_id, entity_type, entity_key, severity, title, message, occurred_at, created_at, is_read, read_at, dedupe_key, metadata"
 
@@ -38,24 +39,41 @@ async def create(payload: NotificationCreate) -> tuple[NotificationOut, bool]:
         row=(await s.execute(text(f"SELECT {COLS} FROM notifications.notifications WHERE id=:id"),{"id":ident})).first()
         return _out(row), True
 
-async def list_notifications(limit=100, source_product=None, entity_type=None, entity_key=None, unread_only=False):
+async def list_notifications(limit=100, source_product=None, entity_type=None, entity_key=None, unread_only=False, cursor=None):
     clauses=[]; params={}
     if source_product: clauses.append("source_product=:source_product"); params['source_product']=source_product
     if entity_type: clauses.append("entity_type=:entity_type"); params['entity_type']=entity_type
     if entity_key: clauses.append("entity_key=:entity_key"); params['entity_key']=entity_key
     if unread_only: clauses.append("is_read=FALSE")
+    if cursor:
+        occurred, ident = decode(cursor); clauses.append("(occurred_at < :cursor_time OR (occurred_at = :cursor_time AND id < :cursor_id))"); params.update(cursor_time=occurred,cursor_id=ident)
     where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
     async with session_factory() as s:
-        rows=(await s.execute(text(f"SELECT {COLS} FROM notifications.notifications{where} ORDER BY occurred_at DESC,id DESC LIMIT :limit"), {**params,'limit':limit})).all()
-        return [_out(r) for r in rows]
+        rows=(await s.execute(text(f"SELECT {COLS} FROM notifications.notifications{where} ORDER BY occurred_at DESC,id DESC LIMIT :limit"), {**params,'limit':limit+1})).all()
+        has_more=len(rows)>limit; rows=rows[:limit]
+        return {'items':[_out(r) for r in rows], 'next_cursor': encode(rows[-1].occurred_at,rows[-1].id) if has_more and rows else None}
 
-async def unread_count():
-    async with session_factory() as s: return (await s.execute(text("SELECT count(*) FROM notifications.notifications WHERE is_read=FALSE"))).scalar_one()
+async def clear_notifications(source_product=None):
+    async with session_factory() as s:
+        if source_product:
+            r=await s.execute(text("DELETE FROM notifications.notifications WHERE source_product=:source"),{'source':source_product})
+        else: r=await s.execute(text("DELETE FROM notifications.notifications"))
+        await s.commit(); return r.rowcount or 0
+
+async def unread_count(source_product=None):
+    async with session_factory() as s:
+        if source_product:
+            return (await s.execute(text("SELECT count(*) FROM notifications.notifications WHERE is_read=FALSE AND source_product=:source"), {'source':source_product})).scalar_one()
+        return (await s.execute(text("SELECT count(*) FROM notifications.notifications WHERE is_read=FALSE"))).scalar_one()
 
 async def mark_read(ident: UUID):
     async with session_factory() as s:
         r=await s.execute(text("UPDATE notifications.notifications SET is_read=TRUE, read_at=COALESCE(read_at, now()) WHERE id=:id RETURNING id"),{"id":ident}); await s.commit(); return r.first() is not None
 
-async def mark_all_read():
+async def mark_all_read(source_product=None):
     async with session_factory() as s:
-        r=await s.execute(text("UPDATE notifications.notifications SET is_read=TRUE, read_at=COALESCE(read_at, now()) WHERE is_read=FALSE")); await s.commit(); return r.rowcount
+        if source_product:
+            r=await s.execute(text("UPDATE notifications.notifications SET is_read=TRUE, read_at=COALESCE(read_at, now()) WHERE is_read=FALSE AND source_product=:source"), {'source':source_product})
+        else:
+            r=await s.execute(text("UPDATE notifications.notifications SET is_read=TRUE, read_at=COALESCE(read_at, now()) WHERE is_read=FALSE"))
+        await s.commit(); return r.rowcount
